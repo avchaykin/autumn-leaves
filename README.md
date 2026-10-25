@@ -5,7 +5,7 @@ tree species data, observed temperatures and the weather forecast, and runs a
 leaf-senescence model for each place. It starts on northern France / Belgium.
 
 ```
-npm start          # python3 -m http.server 8080 → http://localhost:8080
+npm start          # node scripts/serve.mjs → http://localhost:8080 (no-cache)
 npm test           # node --test (model + mapping unit tests)
 ```
 
@@ -45,13 +45,19 @@ No build step and no API keys. Leaflet is loaded from cdnjs and everything else 
 
 ### Staying within free-tier limits
 
-Open-Meteo's free tier allows about 600 call-units per minute and 5,000 per hour.
+Open-Meteo's free tier allows about 600 call-units per minute, 5,000 per hour and 10,000 per day.
+Higher limits need a paid API key (`customer-api.open-meteo.com`), which a static public app can't keep secret.
 Each location counts separately, and every 14 days of data counts as one more unit.
 
 * **Grid size:** the weather grid gets coarser as you zoom out. A zoomed-out view costs about
   300–400 units, and it is cached in the browser for the rest of the day.
 * **Pacing:** requests are paced against the per-minute budget, and a 429 "minutely" response
   is retried automatically.
+* **Incremental history:** the season's observed temperatures are cached per location and only
+  the new days are fetched later. A return visit therefore costs one small forecast request per
+  location (~1.6 units) instead of the whole season again.
+* **Archive end date:** ERA5 lags a few days behind. If a request runs past the archive's last day,
+  the app reads that date from Open-Meteo's error, retries with it, and the forecast API fills the gap.
 * **Normals:** these are the expensive part (~100 units per location). They are kept per
   1° cell and fetched once. `data/normals-1deg.json` ships them for 49–52°N, 1–7°E,
   and `node scripts/build-normals.mjs S W N E` builds them for another area.

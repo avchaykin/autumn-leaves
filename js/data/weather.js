@@ -13,8 +13,8 @@ const ARCHIVE = 'https://archive-api.open-meteo.com/v1/archive';
 const FORECAST = 'https://api.open-meteo.com/v1/forecast';
 const DAILY = 'temperature_2m_mean,temperature_2m_min';
 const BATCH = 25;              // locations per request
-const ARCHIVE_LAG = 2;         // days kept off the archive end (UTC + processing lag)
-const PAST_DAYS = 5;           // recent days taken from the forecast API instead
+const ARCHIVE_LAG = 3;         // days kept off the archive end (UTC + processing lag)
+const PAST_DAYS = 7;           // recent days taken from the forecast API instead
 const SEASON_FROM = '08-15';   // senescence can't start earlier north of 45°N (day length > 13.5 h)
 export const NORMAL_YEARS = 10;
 const LAPSE = -0.0065;         // °C per m, to adjust normals to a location's elevation
@@ -88,14 +88,31 @@ async function getJson(url, units) {
   }
 }
 
+// The archive's last available day moves with ERA5 processing. When a
+// request runs past it, Open-Meteo answers 400 "... allowed range from
+// 1940-01-01 to YYYY-MM-DD"; that date is remembered and the request retried.
+let archiveMax = null;
+async function archiveJson(makeUrl, end, units) {
+  const e = archiveMax && archiveMax < end ? archiveMax : end;
+  try {
+    return await getJson(makeUrl(e), units);
+  } catch (err) {
+    const m = /end_date.*to (\d{4}-\d{2}-\d{2})/.exec(err.message);
+    if (!m || m[1] >= e) throw err;
+    archiveMax = m[1];
+    return getJson(makeUrl(m[1]), units);
+  }
+}
+
 const coordParams = (pts) =>
   `latitude=${pts.map((p) => p.lat.toFixed(3)).join(',')}&longitude=${pts.map((p) => p.lon.toFixed(3)).join(',')}`;
 
-async function fetchBatched(pts, days, makeUrl) {
+async function fetchBatched(pts, days, makeUrl, { archiveEnd } = {}) {
   const batches = [];
   for (let i = 0; i < pts.length; i += BATCH) batches.push(pts.slice(i, i + BATCH));
   const results = await pool(batches, 2, async (b) => {
-    const json = await getJson(makeUrl(b), unitsFor(b.length, days));
+    const units = unitsFor(b.length, days);
+    const json = archiveEnd ? await archiveJson((end) => makeUrl(b, end), archiveEnd, units) : await getJson(makeUrl(b), units);
     return Array.isArray(json) ? json : [json];
   });
   return results.flat();
@@ -119,18 +136,32 @@ function unpack(p) {
   return { days, lastForecast: p.lastForecast, elevation: p.elevation };
 }
 
+// Merged series are cached per day; drop the ones from earlier days.
+try {
+  const today = new Date().toLocaleDateString('sv-SE');
+  for (const k of Object.keys(localStorage)) {
+    const m = /^al\d+:wx:\d+:(\d{4}-\d{2}-\d{2}):/.exec(k);
+    if (m && m[1] < today) localStorage.removeItem(k);
+  }
+} catch { /* no storage (or Node tests) */ }
+
 // ------------------------------------------------------------ season series
 // Observed (archive) + forecast for many points.
 // Returns Map(point.id -> { days:[{date,tmean,tmin,src}], lastForecast, elevation })
+//
+// The archive part of the current season is cached per point (`wxo:`) and
+// only extended with the days that are new since, so a return visit costs
+// one small forecast request per point instead of the whole season again.
 export async function seasonSeries(points, today) {
   const season = seasonFor(today);
-  // The archive runs in UTC and lags a day or two behind the viewer's local
+  // The archive runs in UTC and lags a few days behind the viewer's local
   // date; the forecast API's recent past (past_days) covers that gap.
   const lagged = addDays(today, -ARCHIVE_LAG);
   const archiveEnd = lagged < season.end ? lagged : season.end;
   const live = today <= season.end;
   // past seasons never change; the current one is refreshed daily
   const keyOf = (p) => `wx:${season.year}:${live ? today : 'final'}:${p.id}`;
+  const obsKey = (p) => `wxo:${season.year}:${p.id}`;
   const result = new Map();
   const missing = [];
   for (const p of points) {
@@ -139,35 +170,60 @@ export async function seasonSeries(points, today) {
   }
   if (!missing.length) return result;
 
-  const hasArchive = archiveEnd >= season.start; // false in the first days of the season
-  const [arch, fc] = await Promise.all([
-    hasArchive
-      ? fetchBatched(missing, daysBetween(season.start, archiveEnd), (b) => `${ARCHIVE}?${coordParams(b)}&start_date=${season.start}&end_date=${archiveEnd}&daily=${DAILY}&timezone=Europe%2FParis`)
-      : Promise.resolve(null),
+  // archive days still needed per point, grouped by their first missing day
+  const obs = new Map();
+  const groups = new Map();
+  const covered = addDays(today, -PAST_DAYS - 1); // forecast past_days reach back to here
+  for (const p of missing) {
+    const o = live ? cached.get(obsKey(p)) : null;
+    const prev = o ? unpack(o) : { days: [], elevation: undefined };
+    obs.set(p.id, prev);
+    const through = prev.days.at(-1)?.date;
+    if (live && through && through >= covered) continue;
+    const from = through ? addDays(through, 1) : season.start;
+    if (from > archiveEnd) continue;
+    if (!groups.has(from)) groups.set(from, []);
+    groups.get(from).push(p);
+  }
+
+  const [, fc] = await Promise.all([
+    Promise.all([...groups].map(async ([from, pts]) => {
+      const json = await fetchBatched(pts, daysBetween(from, archiveEnd),
+        (b, end) => `${ARCHIVE}?${coordParams(b)}&start_date=${from}&end_date=${end}&daily=${DAILY}&timezone=Europe%2FParis`,
+        { archiveEnd });
+      pts.forEach((p, i) => {
+        const prev = obs.get(p.id);
+        const a = json[i].daily;
+        a.time.forEach((date, k) => {
+          // ERA5's newest days can still be empty; stop at the first gap
+          if (a.temperature_2m_mean[k] == null || (prev.days.at(-1) && date !== addDays(prev.days.at(-1).date, 1))) return;
+          prev.days.push({ date, tmean: a.temperature_2m_mean[k], tmin: a.temperature_2m_min[k], src: 'observed' });
+        });
+        prev.elevation ??= json[i].elevation;
+        if (live) cached.set(obsKey(p), pack(prev));
+      });
+    })),
     live
       ? fetchBatched(missing, PAST_DAYS + 16, (b) => `${FORECAST}?${coordParams(b)}&daily=${DAILY}&past_days=${PAST_DAYS}&forecast_days=16&timezone=Europe%2FParis`)
       : Promise.resolve(null),
   ]);
 
   missing.forEach((p, i) => {
-    const byDate = new Map();
-    const a = arch?.[i].daily;
-    a?.time.forEach((date, k) => {
-      if (a.temperature_2m_mean[k] != null) byDate.set(date, { date, tmean: a.temperature_2m_mean[k], tmin: a.temperature_2m_min[k], src: 'observed' });
-    });
+    const o = obs.get(p.id);
+    const byDate = new Map(o.days.map((d) => [d.date, d]));
     let lastForecast = null;
     if (fc) {
       const f = fc[i].daily;
       f.time.forEach((date, k) => {
         const tmean = f.temperature_2m_mean[k];
         if (tmean == null || date < season.start || date > season.end) return;
-        // the archive's last days are preliminary; keep it for the past, forecast for the future
+        // archive for the past, forecast for the future and the archive's gap
         if (date > today || !byDate.has(date)) byDate.set(date, { date, tmean, tmin: f.temperature_2m_min[k], src: date > today ? 'forecast' : 'observed' });
         if (date > today) lastForecast = date;
       });
     }
     const days = [...byDate.values()].sort((x, y) => (x.date < y.date ? -1 : 1));
-    const entry = { days, lastForecast, elevation: (arch?.[i] ?? fc?.[i])?.elevation };
+    const entry = { days, lastForecast, elevation: o.elevation ?? fc?.[i]?.elevation };
     cached.set(keyOf(p), pack(entry));
     result.set(p.id, entry);
   });
@@ -187,7 +243,7 @@ export async function normals(lat, lon, baseline) {
   const years = [];
   for (let y = y0; y <= y1; y++) years.push(y);
   const results = await pool(years, 2, (y) =>
-    getJson(`${ARCHIVE}?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&start_date=${y}-${SEASON_FROM}&end_date=${y}-12-31&daily=${DAILY}&timezone=Europe%2FParis`, unitsFor(1, days)));
+    archiveJson((end) => `${ARCHIVE}?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&start_date=${y}-${SEASON_FROM}&end_date=${end}&daily=${DAILY}&timezone=Europe%2FParis`, `${y}-12-31`, unitsFor(1, days)));
   const buckets = new Map();
   for (const json of results) {
     const d = json.daily;
