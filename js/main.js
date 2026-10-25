@@ -415,13 +415,13 @@ function renderSpecies() {
   const S = sAt(cell, state.date);
   list.innerHTML = Object.entries(comp)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 9)
+    .slice(0, 8)
     .map(([genus, share]) => {
       const st = genusState(genus, S);
       const name = SPECIES[genus].name;
       const detail = stageText(st);
       return `<li class="${st.stage}" title="${name}: ${Math.round(share * 100)}% of trees here, ${detail}">
-        ${leafSvg(genus, st.color, { size: 30 })}
+        ${leafSvg(genus, st.color, { size: 40 })}
         <span class="sp-name">${name}</span>
         <span class="sp-stage">${detail}</span>
       </li>`;
@@ -566,7 +566,7 @@ function renderDetailDate(ctx) {
       vs = dd === 0 ? 'normal' : `<span class="${dd < 0 ? 'early' : 'late'}">${Math.abs(dd)} d ${dd < 0 ? 'early' : 'late'}</span>`;
     }
     return `<tr>
-      <td class="genus${p.stage === 'bare' ? ' fallen' : ''}">${leafSvg(p.genus, p.color, { size: 20 })}${sp.name}<span class="share-inline">${Math.round(p.share * 100)}%</span></td>
+      <td class="genus${p.stage === 'bare' ? ' fallen' : ''}">${leafSvg(p.genus, p.color, { size: 24 })}${sp.name}<span class="share-inline">${Math.round(p.share * 100)}%</span></td>
       <td class="share">${Math.round(p.share * 100)}%</td>
       <td>${stageText(p)}</td>
       <td>${m?.peak ? fmtDate(m.peak) : sp.evergreen ? '–' : '> Dec'}</td>

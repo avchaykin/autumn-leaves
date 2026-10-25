@@ -23,7 +23,10 @@ No build step and no API keys. Leaflet is loaded from cdnjs and everything else 
   * *outlook*: after that, 10-year daily normals plus the current anomaly, which fades over about 3 weeks
 * **Leaf reference** in the side panel: drawn leaves of the main genera near the map centre
   (or in the forest under it when zoomed in), each filled with its modelled colour for the
-  selected date. Leaves of trees that are already bare are faded. The shapes are in `js/leaves.js`.
+  selected date. Leaves of trees that are already bare are faded. The drawings in `js/leaves.js`
+  are generated from each genus's main local species: blade shape, base (cordate, oblique,
+  auricled), margin teeth, venation, compound and needle arrangements.
+  `test/leaves.html` shows them all (add `?big=270` for large versions).
 * **Season selector** replays past autumns (2018 onwards) from observed data.
 * **Click anywhere** to open a panel with:
   * the species mix, each genus's stage, its predicted peak date, and how many days early or late that is compared with a normal year

@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Leaf sheet</title>
+<style>
+  body { font: 13px system-ui; margin: 16px; background: #faf8f4; }
+  .g { display: grid; grid-template-columns: repeat(auto-fill, 150px); gap: 12px; }
+  figure { margin: 0; text-align: center; }
+  .small svg { margin: 0 3px; }
+</style>
+<div class="g" id="g"></div>
+<script type="module">
+  import { leafSvg, LEAF_GENERA } from '../js/leaves.js';
+  import { SPECIES } from '../js/species.js';
+  const g = document.getElementById('g');
+  const big = +(new URLSearchParams(location.search).get('big') || 140);
+  if (big > 140) g.style.gridTemplateColumns = 'repeat(auto-fill, ' + (big + 10) + 'px)';
+  for (const genus of LEAF_GENERA) {
+    const sp = SPECIES[genus];
+    const fills = sp.evergreen ? [sp.green, sp.green, sp.green] : ['#4a7a2e', ...sp.colors.slice(0, 2)];
+    g.insertAdjacentHTML('beforeend', `<figure>${leafSvg(genus, fills[1], { size: big })}
+      <div class="small">${fills.map((f) => leafSvg(genus, f, { size: 40 })).join('')}${leafSvg(genus, fills[2], { size: 20 })}</div>
+      <figcaption>${sp.name} <i>${genus}</i></figcaption></figure>`);
+  }
+</script>

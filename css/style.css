@@ -89,8 +89,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 }
 .species[open] summary::before { transform: rotate(45deg); }
 .species summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.species-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 4px; }
-.species-list li { display: grid; grid-template-columns: 30px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 6px; align-items: center; padding: 4px 2px; border-radius: 6px; }
+.species-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 4px; }
+.species-list li { display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 8px; align-items: center; padding: 2px; border-radius: 6px; }
 .species-list .leaf { grid-row: span 2; display: block; transition: opacity 200ms ease-out; }
 .species-list li.bare .leaf { opacity: 0.35; }
 .species-list li.empty { display: block; color: var(--muted); font-size: 12px; grid-column: 1 / -1; }
@@ -120,7 +120,7 @@ td { padding: 4px; border-bottom: 1px solid var(--line); }
 td.genus { white-space: nowrap; }
 th, td { white-space: nowrap; }
 .share-inline { display: none; margin-left: 5px; color: var(--muted); font-size: 11.5px; }
-td.genus .leaf { vertical-align: -5px; margin-right: 6px; }
+td.genus .leaf { vertical-align: -7px; margin-right: 6px; }
 td.genus.fallen .leaf { opacity: 0.35; }
 .early { color: #2f7a4a; } .late { color: #b0552a; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .early { color: #6cc18a; } :root:not([data-theme="light"]) .late { color: #f0a070; } }
